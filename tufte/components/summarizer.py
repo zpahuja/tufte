@@ -9,13 +9,17 @@ logger = logging.getLogger(__name__)
 
 OPENAI_MODEL = "gpt-4o-mini"
 SYSTEM_PROMPT = """
-You are an experience data analyst. You have been tasked to summarize a dataset so we can understand the dataset and tasks that can be performed on it.
+You are an experienced data analyst. You have been tasked to summarize a dataset given statistics in a JSON format where each key is the field name or column.
 
 Response in the following JSON format:
 {{
-    field_name: {
-        "description: "A brief description of the field",
-        "semantc_type": "single word semantic type given its values, e.g. date, company, city, number, category, supplier, location, gender, longitude, latitude, url, ip address, zip code, email",
+    "description": "A brief description of the dataset",
+    "fields": {{
+        field_name: {{
+            "description: "A brief description of the field",
+            "semantc_type": "single word semantic type given its values, e.g. date, company, city, number, category, supplier, location, gender, longitude, latitude, url, ip address, zip code, email",
+        }}
+    }}
 }}
 """.strip()
 
@@ -60,6 +64,7 @@ class Summarizer:
                 properties.update(
                     {
                         "dtype": "number",
+                        "mean": convert_np_dtype(df[column].mean(), dtype),
                         "std": convert_np_dtype(df[column].std(), dtype),
                         "min": convert_np_dtype(df[column].min(), dtype),
                         "max": convert_np_dtype(df[column].max(), dtype),
@@ -101,16 +106,21 @@ class Summarizer:
             messages=messages,
             response_format={"type": "json_object"},
         )
-        property_descriptions = json.loads(response.choices[0].message.content)
+        enriched_descriptions = json.loads(response.choices[0].message.content)
+        dataset_description, property_descriptions = enriched_descriptions["description"], enriched_descriptions["fields"]
         enriched_properties = {
             key: {**data_properties.get(key, {}), **property_descriptions.get(key, {})}
             for key in set(data_properties) | set(property_descriptions)
         }
-        return enriched_properties
+        return {"description": dataset_description, "fields": enriched_properties}
 
-    def summarize(self, data: Union[pd.DataFrame, str], n_samples: int = 3) -> Dict:
+    def summarize(self, data: Union[pd.DataFrame, str], n_samples: int = 3, enrich: bool = False) -> Dict:
         if isinstance(data, str) and data.endswith(".csv"):
             data = pd.read_csv(data)
+        if not isinstance(data, pd.DataFrame):
+            raise ValueError("Data must be a pandas DataFrame or a path to a CSV file")
         data_properties = self._get_column_properties(data, n_samples)
-        data_summary = self._enrich(data_properties)
-        return data_summary
+        if enrich:
+            return self._enrich(data_properties)
+        else:
+            return {"fields": data_properties}
