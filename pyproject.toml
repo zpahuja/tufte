@@ -1,0 +1,43 @@
+[build-system]
+requires = ["setuptools", "setuptools-scm"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "tufte" 
+authors = [
+  { name="Zubin Pahuja", email="pahuja.zubin@gmail.com" },
+  { name="Ishan Singavarapu", email="ishansingavarapu@gmail.com" },
+]
+description = "Automatic Generation of Visualizations from Data"
+readme = "README.md"
+requires-python = ">=3.9"
+dependencies = [
+    "numpy",
+    "pandas",
+    "matplotlib",
+    "altair", 
+    "seaborn",
+    "plotly", 
+    "plotnine",
+    "statsmodels", 
+    "geopandas",
+    "matplotlib-venn",
+    "wordcloud",
+    "kaleido>=0.2.1, !=0.2.1.post1"
+]
+
+dynamic = ["version"]
+
+[tool.setuptools]
+include-package-data = true 
+
+[tool.setuptools.dynamic]
+readme = {file = ["README.md"]}
+
+[tool.setuptools.packages.find]  
+include = ["tufte*"]
+exclude = ["*.tests*"]
+namespaces = false
+
+[tool.setuptools.package-data]
+"tufte" = ["*.*"]

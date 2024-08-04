@@ -1,0 +1,5 @@
+numpy
+openai
+pandas
+seaborn
+"transformers[agents]"

@@ -5,19 +5,21 @@ import warnings
 from openai import OpenAI
 from typing import Dict, List, Union
 
+from .utils import read_dataframe
+
 logger = logging.getLogger(__name__)
 
-OPENAI_MODEL = "gpt-4o-mini"
+DEFAULT_OPENAI_MODEL = "gpt-4o-mini"
 SYSTEM_PROMPT = """
 You are an experienced data analyst. You have been tasked to summarize a dataset given statistics in a JSON format where each key is the field name or column.
 
-Response in the following JSON format:
+Respond in JSON format as follows:
 {{
     "description": "A brief description of the dataset",
     "fields": {{
         field_name: {{
             "description: "A brief description of the field",
-            "semantc_type": "single word semantic type given its values, e.g. date, company, city, number, category, supplier, location, gender, longitude, latitude, url, ip address, zip code, email",
+            "semantc_type": "single word semantic type given its values, e.g. date, company, city, number, category, supplier, location, gender, longitude, latitude, url, zipcode, email",
         }}
     }}
 }}
@@ -25,7 +27,8 @@ Response in the following JSON format:
 
 
 class Summarizer:
-    def __init__(self) -> None:
+    def __init__(self, model: str = DEFAULT_OPENAI_MODEL) -> None:
+        self.oai_model = model
         self.oai_client = OpenAI()
 
     def _get_column_properties(self, df: pd.DataFrame, n_samples: int = 3) -> List[Dict]:
@@ -64,8 +67,8 @@ class Summarizer:
                 properties.update(
                     {
                         "dtype": "number",
-                        "mean": convert_np_dtype(df[column].mean(), dtype),
-                        "std": convert_np_dtype(df[column].std(), dtype),
+                        "mean": round(float(df[column].mean()), 4),
+                        "std": round(float(df[column].std()), 4),
                         "min": convert_np_dtype(df[column].min(), dtype),
                         "max": convert_np_dtype(df[column].max(), dtype),
                     }
@@ -102,12 +105,15 @@ class Summarizer:
             {"role": "user", "content": json.dumps(data_properties)},
         ]
         response = self.oai_client.chat.completions.create(
-            model=OPENAI_MODEL,
+            model=self.oai_model,
             messages=messages,
             response_format={"type": "json_object"},
         )
         enriched_descriptions = json.loads(response.choices[0].message.content)
-        dataset_description, property_descriptions = enriched_descriptions["description"], enriched_descriptions["fields"]
+        dataset_description, property_descriptions = (
+            enriched_descriptions["description"],
+            enriched_descriptions["fields"]
+        )
         enriched_properties = {
             key: {**data_properties.get(key, {}), **property_descriptions.get(key, {})}
             for key in set(data_properties) | set(property_descriptions)
@@ -116,11 +122,8 @@ class Summarizer:
 
     def summarize(self, data: Union[pd.DataFrame, str], n_samples: int = 3, enrich: bool = False) -> Dict:
         if isinstance(data, str) and data.endswith(".csv"):
-            data = pd.read_csv(data)
+            data = read_dataframe(data)
         if not isinstance(data, pd.DataFrame):
             raise ValueError("Data must be a pandas DataFrame or a path to a CSV file")
         data_properties = self._get_column_properties(data, n_samples)
-        if enrich:
-            return self._enrich(data_properties)
-        else:
-            return {"fields": data_properties}
+        return self._enrich(data_properties) if enrich else {"fields": data_properties}
