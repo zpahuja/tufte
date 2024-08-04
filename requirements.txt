@@ -1,5 +1,10 @@
+altair
+ggplot
+matplotlib
 numpy
 openai
 pandas
+plotly
+pydantic
 seaborn
 "transformers[agents]"
