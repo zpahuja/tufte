@@ -36,12 +36,12 @@ class Summarizer:
 
         def add_date_properties(column):
             try:
-                properties["min"] = df[column].min()
-                properties["max"] = df[column].max()
+                properties["min"] = json.dumps(df[column].min().timestamp())
+                properties["max"] = json.dumps(df[column].max().timestamp())
             except TypeError:
                 cast_date_col = pd.to_datetime(df[column], errors="coerce")
-                properties["min"] = cast_date_col.min()
-                properties["max"] = cast_date_col.max()
+                properties["min"] = json.dumps(cast_date_col.min().timestamp())
+                properties["max"] = json.dumps(cast_date_col.max().timestamp())
 
         def add_samples(column):
             non_null_values = df[column][df[column].notnull()].unique()
