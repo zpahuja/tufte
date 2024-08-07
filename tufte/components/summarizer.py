@@ -36,12 +36,12 @@ class Summarizer:
 
         def add_date_properties(column):
             try:
-                properties["min"] = df[column].min()
-                properties["max"] = df[column].max()
+                properties["min"] = df[column].min().isoformat()
+                properties["max"] = df[column].max().isoformat()
             except TypeError:
                 cast_date_col = pd.to_datetime(df[column], errors="coerce")
-                properties["min"] = cast_date_col.min()
-                properties["max"] = cast_date_col.max()
+                properties["min"] = cast_date_col.min().isoformat()
+                properties["max"] = cast_date_col.max().isoformat()
 
         def add_samples(column):
             non_null_values = df[column][df[column].notnull()].unique()
@@ -89,10 +89,12 @@ class Summarizer:
             elif pd.api.types.is_datetime64_any_dtype(df[column]):
                 properties["dtype"] = "date"
 
+            properties["samples"] = add_samples(column)
+
             if properties["dtype"] == "date":
                 add_date_properties(column)
+                properties["samples"] = [sample.isoformat() for sample in properties["samples"]]
 
-            properties["samples"] = add_samples(column)
             properties["num_unique_values"] = df[column].nunique()
             properties_dict[column] = properties
 
