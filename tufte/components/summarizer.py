@@ -5,7 +5,7 @@ import warnings
 from openai import OpenAI
 from typing import Dict, List, Union
 
-from .utils import read_dataframe
+from .utils import read_dataframe        
 
 logger = logging.getLogger(__name__)
 
@@ -36,12 +36,12 @@ class Summarizer:
 
         def add_date_properties(column):
             try:
-                properties["min"] = df[column].min()
-                properties["max"] = df[column].max()
+                properties["min"] = df[column].min().isoformat()
+                properties["max"] = df[column].max().isoformat()
             except TypeError:
                 cast_date_col = pd.to_datetime(df[column], errors="coerce")
-                properties["min"] = cast_date_col.min()
-                properties["max"] = cast_date_col.max()
+                properties["min"] = cast_date_col.min().isoformat()
+                properties["max"] = cast_date_col.max().isoformat()
 
         def add_samples(column):
             non_null_values = df[column][df[column].notnull()].unique()
@@ -108,6 +108,7 @@ class Summarizer:
             model=self.oai_model,
             messages=messages,
             response_format={"type": "json_object"},
+            
         )
         enriched_descriptions = json.loads(response.choices[0].message.content)
         dataset_description, property_descriptions = (
