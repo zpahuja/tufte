@@ -1,131 +1,51 @@
-import json
+def sum_Output(BaseModel):
+  dType : str
+  mean : float
+  Standard_Deviation : float
+  Min : float
+  Max : float
+  Samples : list[float]
+  num_unique_values : int
+  Description : str
+
+
+
 import logging
 import pandas as pd
-import warnings
-from openai import OpenAI
-from typing import Dict, List, Union
-
-from .utils import read_dataframe
+import re
 
 logger = logging.getLogger(__name__)
 
-DEFAULT_OPENAI_MODEL = "gpt-4o-mini"
-SYSTEM_PROMPT = """
-You are an experienced data analyst. You have been tasked to summarize a dataset given statistics in a JSON format where each key is the field name or column.
 
-Respond in JSON format as follows:
-{{
-    "description": "A brief description of the dataset",
-    "fields": {{
-        field_name: {{
-            "description: "A brief description of the field",
-            "semantc_type": "single word semantic type given its values, e.g. date, company, city, number, category, supplier, location, gender, longitude, latitude, url, zipcode, email",
-        }}
-    }}
-}}
-""".strip()
+def read_dataframe(filepath: str, encoding: str = 'utf-8') -> pd.DataFrame:
+    """
+    Read a dataframe from a given filepath.
+    Sample 100,000 rows if it exceeds that limit.
+    """
+    file_extension = filepath.split('.')[-1]
 
+    read_funcs = {
+        'json': lambda: pd.read_json(filepath, orient='records'),
+        'csv': lambda: pd.read_csv(filepath),
+        'xls': lambda: pd.read_excel(filepath),
+        'xlsx': lambda: pd.read_excel(filepath),
+        'tsv': lambda: pd.read_csv(filepath, sep='\t'),
+    }
 
-class Summarizer:
-    def __init__(self, model: str = DEFAULT_OPENAI_MODEL) -> None:
-        self.oai_model = model
-        self.oai_client = OpenAI()
+    if file_extension not in read_funcs:
+        raise ValueError('Unsupported file type')
 
-    def _get_column_properties(self, df: pd.DataFrame, n_samples: int = 3) -> List[Dict]:
-        properties_dict = {}
+    try:
+        df = read_funcs[file_extension]()
+    except Exception as e:
+        logger.error(f"Failed to read file: {filepath}. Error: {e}")
+        raise
 
-        def add_date_properties(column):
-            try:
-                properties["min"] = df[column].min().isoformat()
-                properties["max"] = df[column].max().isoformat()
-            except TypeError:
-                cast_date_col = pd.to_datetime(df[column], errors="coerce")
-                properties["min"] = cast_date_col.min().isoformat()
-                properties["max"] = cast_date_col.max().isoformat()
+    df.columns = [re.sub(r'[^0-9a-zA-Z_]', '_', col_name) for col_name in df.columns]
 
-        def add_samples(column):
-            non_null_values = df[column][df[column].notnull()].unique()
-            n_samples_adjusted = min(n_samples, len(non_null_values))
-            return (
-                pd.Series(non_null_values)
-                .sample(n_samples_adjusted, random_state=42)
-                .tolist()
-            )
+    if len(df) > 100000:
+        logger.info(
+            "Dataframe has more than 100,000 rows. We will sample 100,000 rows.")
+        df = df.sample(1e5)
 
-        def convert_np_dtype(value, dtype: str):
-            if "float" in str(dtype):
-                return float(value)
-            elif "int" in str(dtype):
-                return int(value)
-            return value
-
-        for column in df.columns:
-            dtype = df[column].dtype
-            properties = {"dtype": str(dtype)}
-
-            if dtype in [int, float, complex]:
-                properties.update(
-                    {
-                        "dtype": "number",
-                        "mean": round(float(df[column].mean()), 4),
-                        "std": round(float(df[column].std()), 4),
-                        "min": convert_np_dtype(df[column].min(), dtype),
-                        "max": convert_np_dtype(df[column].max(), dtype),
-                    }
-                )
-            elif dtype == bool:
-                properties["dtype"] = "boolean"
-            elif dtype == object:
-                try:
-                    with warnings.catch_warnings():
-                        warnings.simplefilter("ignore")
-                        pd.to_datetime(df[column], errors="raise")
-                        properties["dtype"] = "date"
-                except ValueError:
-                    unique_ratio = df[column].nunique() / len(df[column])
-                    properties["dtype"] = "category" if unique_ratio < 0.5 else "string"
-            elif pd.api.types.is_categorical_dtype(df[column]):
-                properties["dtype"] = "category"
-            elif pd.api.types.is_datetime64_any_dtype(df[column]):
-                properties["dtype"] = "date"
-
-            properties["samples"] = add_samples(column)
-
-            if properties["dtype"] == "date":
-                add_date_properties(column)
-                properties["samples"] = [sample.isoformat() for sample in properties["samples"]]
-
-            properties["num_unique_values"] = df[column].nunique()
-            properties_dict[column] = properties
-
-        return properties_dict
-
-    def _enrich(self, data_properties: List[Dict]) -> Dict:
-        logger.info("Enriching data properties using LLM")
-        messages = [
-            {"role": "system", "content": SYSTEM_PROMPT},
-            {"role": "user", "content": json.dumps(data_properties)},
-        ]
-        response = self.oai_client.chat.completions.create(
-            model=self.oai_model,
-            messages=messages,
-            response_format={"type": "json_object"},
-        )
-        enriched_descriptions = json.loads(response.choices[0].message.content)
-        dataset_description, property_descriptions = (
-            enriched_descriptions["description"],
-            enriched_descriptions["fields"]
-        )
-        enriched_properties = {
-            key: {**data_properties.get(key, {}), **property_descriptions.get(key, {})}
-            for key in set(data_properties) | set(property_descriptions)
-        }
-        return {"description": dataset_description, "fields": enriched_properties}
-
-    def summarize(self, data: Union[pd.DataFrame, str], n_samples: int = 3, enrich: bool = False) -> Dict:
-        if isinstance(data, str) and data.endswith(".csv"):
-            data = read_dataframe(data)
-        if not isinstance(data, pd.DataFrame):
-            raise ValueError("Data must be a pandas DataFrame or a path to a CSV file")
-        data_properties = self._get_column_properties(data, n_samples)
-        return self._enrich(data_properties) if enrich else {"fields": data_properties}
+    return df
