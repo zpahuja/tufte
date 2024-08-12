@@ -4,8 +4,22 @@ import pandas as pd
 import warnings
 from openai import OpenAI
 from typing import Dict, List, Union
+from pydantic import BaseModel
 
 from .utils import read_dataframe
+
+class column_Output(BaseModel):
+  dType: str
+  mean: float
+  Standard_Deviation: float
+  Min: float
+  Max: float
+  Samples: list[float]
+  num_unique_values: int
+  Description : str
+
+class df_Output(BaseModel):
+  Columns_Properties : list[column_Output]
 
 logger = logging.getLogger(__name__)
 
@@ -106,21 +120,15 @@ class Summarizer:
             {"role": "system", "content": SYSTEM_PROMPT},
             {"role": "user", "content": json.dumps(data_properties)},
         ]
-        response = self.oai_client.chat.completions.create(
+        response = self.oai_client.beta.chat.completions.parse(
             model=self.oai_model,
             messages=messages,
-            response_format={"type": "json_object"},
+            response_format=df_Output,
         )
-        enriched_descriptions = json.loads(response.choices[0].message.content)
-        dataset_description, property_descriptions = (
-            enriched_descriptions["description"],
-            enriched_descriptions["fields"]
-        )
-        enriched_properties = {
-            key: {**data_properties.get(key, {}), **property_descriptions.get(key, {})}
-            for key in set(data_properties) | set(property_descriptions)
-        }
-        return {"description": dataset_description, "fields": enriched_properties}
+
+        return response.choices[0].message.parsed
+
+
 
     def summarize(self, data: Union[pd.DataFrame, str], n_samples: int = 3, enrich: bool = False) -> Dict:
         if isinstance(data, str) and data.endswith(".csv"):
