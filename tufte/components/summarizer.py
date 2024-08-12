@@ -1,29 +1,29 @@
+from pydantic import BaseModel
 import json
 import logging
 import pandas as pd
 import warnings
 from openai import OpenAI
 from typing import Dict, List, Union
-
 from .utils import read_dataframe
+
+class sum_Output(BaseModel):
+  dType: str
+  mean: float
+  Standard_Deviation: float
+  Min: float
+  Max: float
+  Samples: list[float]
+  num_unique_values: int
+  Description : str
+class all_Ouputs(BaseModel):
+  Columns_Properties : list[sum_Output]
+
 
 logger = logging.getLogger(__name__)
 
 DEFAULT_OPENAI_MODEL = "gpt-4o-mini"
-SYSTEM_PROMPT = """
-You are an experienced data analyst. You have been tasked to summarize a dataset given statistics in a JSON format where each key is the field name or column.
 
-Respond in JSON format as follows:
-{{
-    "description": "A brief description of the dataset",
-    "fields": {{
-        field_name: {{
-            "description: "A brief description of the field",
-            "semantc_type": "single word semantic type given its values, e.g. date, company, city, number, category, supplier, location, gender, longitude, latitude, url, zipcode, email",
-        }}
-    }}
-}}
-""".strip()
 
 
 class Summarizer:
@@ -89,38 +89,41 @@ class Summarizer:
             elif pd.api.types.is_datetime64_any_dtype(df[column]):
                 properties["dtype"] = "date"
 
-            properties["samples"] = add_samples(column)
-
             if properties["dtype"] == "date":
                 add_date_properties(column)
-                properties["samples"] = [sample.isoformat() for sample in properties["samples"]]
 
+            properties["samples"] = add_samples(column)
             properties["num_unique_values"] = df[column].nunique()
             properties_dict[column] = properties
 
         return properties_dict
 
     def _enrich(self, data_properties: List[Dict]) -> Dict:
+        SYSTEM_PROMPT = """
+        You are an experienced data analyst. You have been tasked to summarize a dataset given statistics where each key is the field name or column. You will be given statistics of this dataset in a JSON format. The dictionary contains all the relevant properties of the data.
+
+
+
+        """.strip()
         logger.info("Enriching data properties using LLM")
         messages = [
             {"role": "system", "content": SYSTEM_PROMPT},
             {"role": "user", "content": json.dumps(data_properties)},
         ]
-        response = self.oai_client.chat.completions.create(
-            model=self.oai_model,
-            messages=messages,
-            response_format={"type": "json_object"},
+        completion = self.oai_client.beta.chat.completions.parse(
+          model = self.oai_model,
+          messages=messages,
+          response_format=all_Ouputs
         )
-        enriched_descriptions = json.loads(response.choices[0].message.content)
-        dataset_description, property_descriptions = (
-            enriched_descriptions["description"],
-            enriched_descriptions["fields"]
-        )
-        enriched_properties = {
-            key: {**data_properties.get(key, {}), **property_descriptions.get(key, {})}
-            for key in set(data_properties) | set(property_descriptions)
-        }
-        return {"description": dataset_description, "fields": enriched_properties}
+
+
+
+        
+        response = completion.choices[0].message.parsed 
+
+        return response
+
+
 
     def summarize(self, data: Union[pd.DataFrame, str], n_samples: int = 3, enrich: bool = False) -> Dict:
         if isinstance(data, str) and data.endswith(".csv"):
@@ -128,4 +131,15 @@ class Summarizer:
         if not isinstance(data, pd.DataFrame):
             raise ValueError("Data must be a pandas DataFrame or a path to a CSV file")
         data_properties = self._get_column_properties(data, n_samples)
-        return self._enrich(data_properties) if enrich else {"fields": data_properties}
+        if enrich:
+          return self._enrich(data_properties)
+        else:
+          return {"fields": data_properties}
+
+
+summ = Summarizer()
+
+summ1 = summ.summarize('Titanic-Dataset.csv', enrich = True)
+
+print(summ1)
+print(summ1.Columns_Properties[0].Description)
