@@ -2,6 +2,11 @@ import json
 import logging
 import openai
 from typing import Dict, List
+from pydantic import BaseModel
+
+class explorer_Output(BaseModel):
+  Goals : list[str]
+
 
 DEFAULT_OPENAI_MODEL = "gpt-4o-mini"
 SYSTEM_PROMPT = """
@@ -12,9 +17,9 @@ As an experienced data analyst, you are tasked with generating insightful hypoth
 3. visualization: Recommend a type of visualization and identify the dataset fields to be visualized, for example, 'Histogram of Y, where Y is the exact field name from the dataset.'
 4. statistic: Determine a key statistic to be calculated, like 'Mean of Z.'
 
-The output should be structured as a list of dictionaries, each representing a goal. This list should be nested within a dictionary under the key 'goals'.
+For the output, only include the actual question.
 
-Please ensure that the dataset, summarized in JSON format where each key denotes a field name or column, is accurately represented in your goals. Follow visualization best practices, including Tufte's principles, and favor the use of bar charts over pie charts.
+Please ensure that the dataset is accurately represented in your goals. Follow visualization best practices, including Tufte's principles, and favor the use of bar charts over pie charts.
 """.strip()
 
 logger = logging.getLogger(__name__)
@@ -33,20 +38,19 @@ class GoalExplorer:
             },
             {
                 "role": "user",
-                "content": f"Generate {n_goals} goals given the following data summary: {json.dumps(summary)}",
+                "content": f"Generate {n_goals} goals given the following data summary: {summary}",
             },
         ]
 
-        response = self.oai_client.chat.completions.create(
+        response = self.oai_client.beta.chat.completions.parse(
             model=self.oai_model,
             messages=messages,
-            response_format={"type": "json_object"},
+            response_format=explorer_Output,
         )
 
-        goals = json.loads(response.choices[0].message.content)
-        assert "goals" in goals, "Expected 'goals' key in the response"
-        assert isinstance(goals["goals"], list), "Expected a list of goals"
+        goals = response.choices[0].message.parsed
+        assert isinstance(goals.Goals, list), "Expected a list of goals"
         assert (
-            len(goals["goals"]) == n_goals
+            len(goals.Goals) == n_goals
         ), f"Expected {n_goals} goals, but got {len(goals)} goals"
-        return goals["goals"]
+        return goals
